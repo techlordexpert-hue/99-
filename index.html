@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>99plus — Match Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root{
+    --ink:#eef4ef; --ink-dim:#9fb0a6; --bg:#070b09;
+    --line:#1c2621; --card:rgba(11,16,13,0.72); --card-solid:#0c130f;
+    --green:#33ff8c; --green-dim:#1c8f53; --amber:#ffb454; --red:#ff5c68;
+    padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+    box-sizing:border-box;
+  }
+  html,body{height:100%; background:var(--bg);}
+  body{font-family:'Inter',sans-serif; color:var(--ink); overflow-x:hidden;}
+  h1,h2,h3,.display{font-family:'Space Grotesk',sans-serif;}
+  .mono{font-family:'JetBrains Mono',monospace;}
+  ::selection{background:var(--green); color:#04140a;}
+
+  #bg-wrap{position:fixed; top:0; left:0; width:100vw; height:100vh; height:100dvh; z-index:0; overflow:hidden; background:#04140a;}
+  #bg-iframe{position:absolute; top:50%; left:50%; width:100vw; height:100vh; height:100dvh;
+    min-width:calc(100dvh * 16 / 9); min-height:calc(100vw * 9 / 16);
+    transform:translate(-50%,-50%) scale(1.06); pointer-events:none; border:0; z-index:1; opacity:0; transition:opacity .6s ease;}
+  #bg-iframe.loaded{opacity:1;}
+  /* Fallback ambient background — shown until the YouTube iframe confirms it loaded
+     (it's blocked by sandboxed preview environments), and behind the video otherwise. */
+  #bg-fallback{position:absolute; inset:0; z-index:0;
+    background:
+      radial-gradient(1100px 700px at 18% 12%, rgba(51,255,140,0.16), transparent 60%),
+      radial-gradient(900px 600px at 85% 80%, rgba(51,255,140,0.10), transparent 55%),
+      linear-gradient(160deg, #0a1710 0%, #050c08 55%, #030704 100%);
+    overflow:hidden;}
+  #bg-fallback .pitch{position:absolute; inset:-10%; opacity:.35;
+    background-image:
+      repeating-linear-gradient(0deg, transparent 0 78px, rgba(255,255,255,0.05) 78px 80px),
+      repeating-linear-gradient(90deg, transparent 0 78px, rgba(255,255,255,0.035) 78px 80px);
+    animation: driftPitch 28s linear infinite;}
+  @keyframes driftPitch{from{transform:translate(0,0);} to{transform:translate(-80px,-80px);}}
+  #bg-fallback .glow-ball{position:absolute; font-size:64px; opacity:.5; filter:blur(.2px); animation:floatY 7s ease-in-out infinite;}
+  #bg-scrim{position:absolute; inset:0; z-index:2; background:
+    radial-gradient(120% 90% at 50% 0%, rgba(5,10,7,0.22), rgba(4,9,6,0.74) 62%, rgba(3,7,5,0.94)),
+    linear-gradient(180deg, rgba(3,7,5,0.35), rgba(3,7,5,0.88) 88%);}
+  #bg-scrim::after{content:""; position:absolute; inset:0; opacity:.05; mix-blend-mode:overlay; pointer-events:none;
+    background-image:repeating-linear-gradient(0deg, #fff 0 1px, transparent 1px 3px);}
+
+  /* ---- motion ---- */
+  @keyframes floatY{0%,100%{transform:translateY(0) rotate(0deg);} 50%{transform:translateY(-10px) rotate(8deg);}}
+  @keyframes spinSlow{to{transform:rotate(360deg);}}
+  @keyframes fadeUp{from{opacity:0; transform:translateY(14px);} to{opacity:1; transform:translateY(0);}}
+  @keyframes pulseDot{0%,100%{opacity:1; box-shadow:0 0 0 0 rgba(51,255,140,0.55);} 50%{opacity:.65; box-shadow:0 0 0 6px rgba(51,255,140,0);}}
+  @keyframes scoreboard{0%{opacity:0; transform:translateY(6px);} 100%{opacity:1; transform:translateY(0);}}
+  @media (prefers-reduced-motion: reduce){
+    .anim-float,.anim-spin,.anim-fadeup,.anim-pulse{animation:none !important;}
+  }
+  .anim-float{animation:floatY 5.5s ease-in-out infinite;}
+  .anim-spin{animation:spinSlow 14s linear infinite;}
+  .anim-fadeup{animation:fadeUp .7s cubic-bezier(.2,.7,.2,1) both;}
+  .anim-pulse{animation:pulseDot 1.8s ease-in-out infinite;}
+  .stagger-1{animation-delay:.05s;} .stagger-2{animation-delay:.15s;} .stagger-3{animation-delay:.25s;} .stagger-4{animation-delay:.35s;}
+
+  .prob-fill{transition:width .9s cubic-bezier(.16,1,.3,1);}
+  .fixture-card{transition:transform .2s ease, border-color .2s ease, box-shadow .2s ease;}
+  .fixture-card:hover{transform:translateY(-4px); border-color:var(--green-dim); box-shadow:0 14px 34px -14px rgba(0,0,0,0.6);}
+
+  /* pitch-line texture used as a section divider / accent */
+  .pitch-lines{background-image:
+    linear-gradient(90deg, transparent 49.5%, rgba(255,255,255,0.08) 49.5% 50.5%, transparent 50.5%),
+    repeating-linear-gradient(0deg, transparent 0 38px, rgba(255,255,255,0.05) 38px 39px);
+  }
+  .kickoff-dot{width:7px; height:7px; border-radius:999px; background:var(--green); display:inline-block;}
+
+  #app{position:relative; z-index:1;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:14px; backdrop-filter: blur(10px);}
+  .btn-primary{background:var(--green); color:#04140a; font-weight:600; transition:transform .15s ease, box-shadow .15s ease;}
+  .btn-primary:hover{transform:translateY(-1px); box-shadow:0 8px 24px -6px rgba(51,255,140,0.45);}
+  .btn-ghost{border:1px solid var(--line); color:var(--ink); transition:border-color .15s ease, background .15s ease;}
+  .btn-ghost:hover{border-color:var(--green-dim); background:rgba(51,255,140,0.06);}
+  .prob-bar{height:6px; border-radius:3px; background:var(--line); overflow:hidden;}
+  .prob-fill{height:100%; background:var(--green);}
+  .tag-value{background:rgba(51,255,140,0.12); color:var(--green); border:1px solid var(--green-dim);}
+  .hidden{display:none !important;}
+  #toast{position:fixed; bottom:calc(24px + env(safe-area-inset-bottom,0px)); left:50%; transform:translateX(-50%) translateY(140%);
+    transition:transform .25s ease; z-index:50;}
+  #toast.show{transform:translateX(-50%) translateY(0);}
+  .num-in{ -moz-appearance:textfield; }
+  .num-in::-webkit-outer-spin-button,.num-in::-webkit-inner-spin-button{-webkit-appearance:none; margin:0;}
+  ::-webkit-scrollbar{width:8px; height:8px;} ::-webkit-scrollbar-thumb{background:var(--line); border-radius:8px;}
+</style>
+</head>
+<body>
+
+<div id="bg-wrap" aria-hidden="true">
+  <div id="bg-fallback">
+    <div class="pitch"></div>
+    <span class="glow-ball" style="top:15%; left:10%;">⚽</span>
+    <span class="glow-ball" style="top:65%; left:80%; animation-delay:1.5s; font-size:44px;">⚽</span>
+    <span class="glow-ball" style="top:40%; left:55%; animation-delay:3s; font-size:36px; opacity:.3;">⚽</span>
+  </div>
+  <iframe id="bg-iframe"
+    src="https://www.youtube.com/embed/Jbw6y6lC1H0?autoplay=1&mute=1&loop=1&playlist=Jbw6y6lC1H0&controls=0&showinfo=0&rel=1&modestbranding=1&playsinline=1"
+    frameborder="0" allow="autoplay; encrypted-media" title="ambient background"
+    onload="document.getElementById('bg-iframe').classList.add('loaded')"></iframe>
+  <div id="bg-scrim"></div>
+</div>
+
+<!-- ENTRY GATE — must sign up before the main site is shown -->
+<div id="gate" class="fixed inset-0 z-40 flex items-center justify-center px-5" style="padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px)">
+  <div class="card p-7 md:p-9 w-full max-w-sm anim-fadeup">
+    <div class="flex items-center gap-2 mb-5">
+      <span class="text-2xl anim-spin" style="animation-duration:22s">⚽</span>
+      <span class="display text-2xl font-bold tracking-tight">99<span style="color:var(--green)">+</span></span>
+    </div>
+    <h1 class="text-xl font-semibold mb-1">Claim your board</h1>
+    <p class="text-sm text-[var(--ink-dim)] mb-6">Pick a nickname to get in. That's the entire signup — we generate your ID.</p>
+    <form id="signup-form" class="flex flex-col gap-3" onsubmit="handleSignup(event)">
+      <input id="nickname-input" required maxlength="18" placeholder="Nickname" autofocus
+        class="bg-black/30 border border-[var(--line)] rounded-lg px-4 py-3 text-sm outline-none focus:border-[var(--green-dim)] placeholder:text-[var(--ink-dim)]">
+      <button type="submit" class="btn-primary px-5 py-3 rounded-lg text-sm">Join 99plus</button>
+    </form>
+    <p class="text-[11px] text-[var(--ink-dim)] mt-4">No password. Saved to this browser — come back anytime.</p>
+  </div>
+</div>
+
+<div id="app" class="hidden min-h-screen flex flex-col">
+
+  <!-- NAV -->
+  <header class="sticky top-0 z-30" style="padding-top:env(safe-area-inset-top,0px)">
+    <div class="max-w-6xl mx-auto px-5 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="text-lg inline-block anim-spin" style="animation-duration:22s">⚽</span>
+        <span class="display text-xl font-bold tracking-tight">99<span style="color:var(--green)">+</span></span>
+        <span class="mono text-[10px] text-[var(--ink-dim)] hidden sm:inline">match intelligence</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <div id="nav-user" class="flex items-center gap-3 card px-3 py-1.5 rounded-lg">
+          <div class="text-right leading-tight">
+            <div class="text-sm font-semibold" id="nav-nickname">—</div>
+            <div class="mono text-[11px] text-[var(--ink-dim)]" id="nav-shortid">—</div>
+          </div>
+          <button onclick="logout()" class="text-xs text-[var(--ink-dim)] hover:text-[var(--red)]" title="Switch nickname">switch</button>
+        </div>
+        <button onclick="goAdmin()" class="btn-ghost text-xs px-3 py-2 rounded-lg mono">admin</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- PUBLIC VIEW -->
+  <main id="view-public" class="flex-1">
+    <!-- HERO -->
+    <section class="relative max-w-6xl mx-auto px-5 pt-10 pb-16 md:pt-16 md:pb-24 overflow-hidden">
+      <span class="hidden md:block absolute -top-2 right-6 text-6xl opacity-90 anim-float select-none" aria-hidden="true">⚽</span>
+      <svg class="hidden md:block absolute top-20 right-40 w-16 h-16 opacity-20 anim-spin select-none" style="animation-duration:30s" viewBox="0 0 100 100" aria-hidden="true">
+        <circle cx="50" cy="50" r="46" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-dasharray="4 6"/>
+      </svg>
+      <div class="flex items-center gap-2 mb-4 anim-fadeup">
+        <span class="kickoff-dot anim-pulse"></span>
+        <span class="mono text-xs text-[var(--ink-dim)] tracking-wide">fixtures updating live</span>
+      </div>
+      <h1 class="display text-4xl md:text-6xl font-bold leading-[1.05] max-w-2xl anim-fadeup stagger-1">
+        Odds built from form,<br>not vibes.
+      </h1>
+      <p class="mt-4 text-[var(--ink-dim)] max-w-md text-base md:text-lg anim-fadeup stagger-2">
+        99plus runs every fixture through a live probability model — home form, away form, head-to-head —
+        and turns it into a straight price. No nickname needed to browse, one nickname to save your board.
+      </p>
+      <div class="mt-7 flex flex-wrap gap-3 anim-fadeup stagger-3">
+        <a href="#predictions" class="btn-primary px-5 py-3 rounded-lg text-sm inline-block">See today's board</a>
+      </div>
+    </section>
+
+    <div class="pitch-lines h-10 md:h-14 max-w-6xl mx-auto opacity-70" aria-hidden="true"></div>
+
+    <!-- PREDICTIONS -->
+    <section id="predictions" class="max-w-6xl mx-auto px-5 pb-24">
+      <div class="flex items-end justify-between mb-5 flex-wrap gap-2">
+        <div>
+          <h2 class="text-2xl font-bold flex items-center gap-2">
+            Today's board <span class="kickoff-dot anim-pulse" title="live"></span>
+          </h2>
+          <p class="text-sm text-[var(--ink-dim)]">Probabilities from a Poisson expected-goals model. Odds shown net a 6% margin.</p>
+        </div>
+        <div class="flex items-center gap-2 text-xs mono text-[var(--ink-dim)]">
+          <span class="w-2 h-2 rounded-full inline-block" style="background:var(--green)"></span> value bet
+        </div>
+      </div>
+      <div id="fixtures-grid" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    </section>
+  </main>
+
+  <!-- ADMIN VIEW -->
+  <div id="view-admin" class="hidden flex-1">
+    <div class="max-w-6xl mx-auto px-5 py-10">
+
+      <div id="admin-gate" class="max-w-sm mx-auto card p-6">
+        <h2 class="text-lg font-semibold mb-1">Control room</h2>
+        <p class="text-sm text-[var(--ink-dim)] mb-4">Staff access only. Enter the admin passcode.</p>
+        <form onsubmit="handleAdminLogin(event)" class="flex flex-col gap-3">
+          <input id="admin-pass" type="password" placeholder="Passcode"
+            class="bg-black/30 border border-[var(--line)] rounded-lg px-4 py-3 text-sm outline-none focus:border-[var(--green-dim)]">
+          <button class="btn-primary px-4 py-3 rounded-lg text-sm">Enter</button>
+          <p class="text-[11px] text-[var(--ink-dim)] mono">demo passcode: 9999</p>
+        </form>
+      </div>
+
+      <div id="admin-panel" class="hidden">
+        <div class="flex items-center justify-between mb-6 flex-wrap gap-2">
+          <h2 class="text-2xl font-bold">Control room</h2>
+          <button onclick="goPublic()" class="btn-ghost text-xs px-3 py-2 rounded-lg">← back to site</button>
+        </div>
+
+        <!-- Users -->
+        <div class="card p-5 mb-8">
+          <h3 class="font-semibold mb-3">Accounts <span class="text-[var(--ink-dim)] font-normal text-sm" id="user-count"></span></h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm min-w-[520px]">
+              <thead class="text-left text-[var(--ink-dim)] text-xs uppercase">
+                <tr class="border-b border-[var(--line)]">
+                  <th class="py-2 pr-3 font-medium">Nickname</th>
+                  <th class="py-2 pr-3 font-medium">ID</th>
+                  <th class="py-2 pr-3 font-medium">Joined</th>
+                  <th class="py-2 pr-3 font-medium">Status</th>
+                  <th class="py-2 pr-3 font-medium text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody id="users-tbody"></tbody>
+            </table>
+            <p id="users-empty" class="hidden text-sm text-[var(--ink-dim)] py-6 text-center">No accounts on this device yet — sign up on the public site first.</p>
+          </div>
+        </div>
+
+        <!-- Prediction override -->
+        <div class="card p-5">
+          <h3 class="font-semibold mb-3">Override a prediction</h3>
+          <p class="text-sm text-[var(--ink-dim)] mb-4">Manually set the numbers the public sees for any fixture before publish.</p>
+          <div id="override-list" class="flex flex-col gap-3"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer class="mt-auto border-t border-[var(--line)]">
+    <div class="max-w-6xl mx-auto px-5 py-6 flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--ink-dim)]">
+      <div class="flex items-center gap-3">
+        <span class="px-2 py-1 rounded border border-[var(--red)]" style="color:var(--red)">18+</span>
+        <span>For entertainment and analysis only. Please gamble responsibly.</span>
+      </div>
+      <span class="mono">99plus © 2026</span>
+    </div>
+  </footer>
+</div>
+
+<div id="toast" class="card px-4 py-2.5 rounded-lg text-sm"></div>
+
+<script>
+/* ============ STORAGE HELPERS ============ */
+function safeGet(key, fallback){
+  try{ const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
+  catch(e){ return fallback; }
+}
+function safeSet(key, value){
+  try{ localStorage.setItem(key, JSON.stringify(value)); return true; }
+  catch(e){ return false; }
+}
+const USERS_KEY = '99plus_users';
+const SELF_KEY  = '99plus_self';
+const MATCH_KEY = '99plus_matches';
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._h); toast._h = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+/* ============ ID GENERATION ============ */
+function genShortId(existing){
+  let id;
+  do{
+    const n = Math.floor(1000 + Math.random()*9000);
+    id = '#99-' + n;
+  } while(existing.some(u=>u.id===id));
+  return id;
+}
+
+/* ============ SIGNUP / SESSION / GATE ============ */
+function showGate(){
+  document.getElementById('gate').classList.remove('hidden');
+  document.getElementById('app').classList.add('hidden');
+  document.body.style.overflow = 'hidden';
+  setTimeout(()=>{ const i=document.getElementById('nickname-input'); if(i) i.focus(); }, 50);
+}
+function enterApp(){
+  document.getElementById('gate').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.body.style.overflow = '';
+}
+function renderSelf(){
+  const self = safeGet(SELF_KEY, null);
+  if(self){
+    document.getElementById('nav-nickname').textContent = self.nickname;
+    document.getElementById('nav-shortid').textContent = self.id;
+  }
+}
+
+function handleSignup(e){
+  e.preventDefault();
+  const input = document.getElementById('nickname-input');
+  const nickname = input.value.trim();
+  if(!nickname) return;
+  const users = safeGet(USERS_KEY, []);
+  const id = genShortId(users);
+  const record = { id, nickname, status:'active', joinedAt: new Date().toISOString() };
+  users.push(record);
+  safeSet(USERS_KEY, users);
+  safeSet(SELF_KEY, { id, nickname });
+
+  input.value = '';
+  renderSelf();
+  renderAdminUsers();
+  enterApp();
+  toast('Welcome, ' + nickname);
+}
+
+function logout(){
+  try{ localStorage.removeItem(SELF_KEY); }catch(e){}
+  toast('Signed out — claim a new nickname to continue');
+  showGate();
+}
+
+/* ============ POISSON PREDICTION ENGINE ============ */
+// Mirrors the Python engine in odds_engine.py — see that file for the server-side/cron version.
+function factorial(n){ let r=1; for(let i=2;i<=n;i++) r*=i; return r; }
+function poissonP(lambda,k){ return Math.exp(-lambda) * Math.pow(lambda,k) / factorial(k); }
+
+function expectedGoals(form){
+  // form: {attack, defense} scaled ~0.5-1.8 relative to league average
+  return form;
+}
+
+function matchProbabilities(homeAttack, homeDefense, awayAttack, awayDefense, homeAdvantage=1.12, maxGoals=8){
+  const lambdaHome = homeAttack * awayDefense * homeAdvantage;
+  const lambdaAway = awayAttack * homeDefense;
+  let pHome=0, pDraw=0, pAway=0;
+  for(let i=0;i<=maxGoals;i++){
+    for(let j=0;j<=maxGoals;j++){
+      const p = poissonP(lambdaHome,i) * poissonP(lambdaAway,j);
+      if(i>j) pHome+=p; else if(i===j) pDraw+=p; else pAway+=p;
+    }
+  }
+  const total = pHome+pDraw+pAway; // normalize for the truncated grid
+  return { home:pHome/total, draw:pDraw/total, away:pAway/total, lambdaHome, lambdaAway };
+}
+
+function probsToOdds(probs, marginPct=0.06){
+  const scale = 1 + marginPct; // overround applied evenly, then inverted per outcome
+  const round2 = x => Math.round(x*100)/100;
+  return {
+    home: round2(1 / (probs.home * scale)),
+    draw: round2(1 / (probs.draw * scale)),
+    away: round2(1 / (probs.away * scale)),
+  };
+}
+
+/* ============ FIXTURE DATA ============
+   In production these come from the automated fetch job (see odds_engine.py /
+   fetch_fixtures) that pulls next fixtures + rolling form + H2H from a provider
+   like API-Football and writes rows here. Below is the shape that job produces. */
+const SEED_FIXTURES = [
+  { id:'f1', home:'Ashcombe FC', away:'Rovers United', kickoff:'Today, 19:45',
+    homeAttack:1.55, homeDefense:0.85, awayAttack:1.05, awayDefense:1.05, marketAway:3.40 },
+  { id:'f2', home:'Northgate', away:'Vale Athletic', kickoff:'Today, 20:00',
+    homeAttack:1.10, homeDefense:1.15, awayAttack:1.40, awayDefense:0.90, marketAway:2.20 },
+  { id:'f3', home:'Portside SC', away:'Kestrel Town', kickoff:'Tomorrow, 15:00',
+    homeAttack:1.75, homeDefense:0.70, awayAttack:0.80, awayDefense:1.30, marketHome:1.55 },
+  { id:'f4', home:'Millfield', away:'Sabre County', kickoff:'Tomorrow, 17:30',
+    homeAttack:0.95, homeDefense:1.05, awayAttack:0.95, awayDefense:1.05, marketDraw:3.60 },
+  { id:'f5', home:'Union Bay', away:'Colt Rangers', kickoff:'Sat, 12:30',
+    homeAttack:1.30, homeDefense:0.95, awayAttack:1.20, awayDefense:1.00, marketHome:2.60 },
+  { id:'f6', home:'Ironbridge', away:'Meridian FC', kickoff:'Sat, 15:00',
+    homeAttack:1.65, homeDefense:0.80, awayAttack:0.85, awayDefense:1.20, marketAway:6.50 },
+];
+
+function computeFixtures(){
+  const overrides = safeGet(MATCH_KEY, {});
+  return SEED_FIXTURES.map(f=>{
+    const probs = matchProbabilities(f.homeAttack, f.homeDefense, f.awayAttack, f.awayDefense);
+    const odds = probsToOdds(probs);
+    const ov = overrides[f.id];
+    return {
+      ...f,
+      probs: ov?.probs || probs,
+      odds: ov?.odds || odds,
+      overridden: !!ov,
+    };
+  });
+}
+
+function valueBetOutcome(f){
+  // Flags a value bet when our model's implied probability beats the mock market odds
+  // on the same outcome (edge = our fair prob − market implied prob).
+  const checks = [
+    ['home', f.marketHome], ['draw', f.marketDraw], ['away', f.marketAway]
+  ];
+  for(const [k, marketOdds] of checks){
+    if(!marketOdds) continue;
+    const marketImplied = 1/marketOdds;
+    if(f.probs[k] - marketImplied > 0.05) return k;
+  }
+  return null;
+}
+
+function renderFixtures(){
+  const grid = document.getElementById('fixtures-grid');
+  const fixtures = computeFixtures();
+  grid.innerHTML = fixtures.map((f,idx)=>{
+    const vb = valueBetOutcome(f);
+    const pct = x => Math.round(x*100);
+    const row = (label,key)=>`
+      <div class="flex items-center gap-2 text-xs">
+        <span class="w-9 text-[var(--ink-dim)]">${label}</span>
+        <div class="prob-bar flex-1"><div class="prob-fill" data-target="${pct(f.probs[key])}" style="width:0%"></div></div>
+        <span class="w-8 text-right mono">${pct(f.probs[key])}%</span>
+        <span class="w-12 text-right mono font-semibold ${vb===key?'text-[var(--green)]':''}">${f.odds[key].toFixed(2)}</span>
+      </div>`;
+    const delay = (idx % 6) * 0.06;
+    return `
+    <div class="card fixture-card p-4 flex flex-col gap-3 anim-fadeup" style="animation-delay:${delay}s">
+      <div class="flex items-start justify-between">
+        <div>
+          <div class="text-sm font-semibold">${f.home} <span class="text-[var(--ink-dim)] font-normal">vs</span> ${f.away}</div>
+          <div class="text-[11px] text-[var(--ink-dim)] mono mt-0.5 flex items-center gap-1.5">
+            <span aria-hidden="true">⚽</span>${f.kickoff}
+          </div>
+        </div>
+        ${vb ? `<span class="tag-value text-[10px] px-2 py-1 rounded-full whitespace-nowrap">value: ${vb}</span>` : ''}
+      </div>
+      <div class="flex flex-col gap-1.5">
+        ${row('1','home')}
+        ${row('X','draw')}
+        ${row('2','away')}
+      </div>
+      ${f.overridden ? `<div class="text-[10px] mono text-[var(--amber)]">manually set by admin</div>` : ''}
+      <a href="https://www.betway.com" target="_blank" rel="noopener sponsored"
+        class="btn-primary text-center text-xs font-semibold py-2.5 rounded-lg mt-1">Bet now at Betway →</a>
+    </div>`;
+  }).join('');
+
+  requestAnimationFrame(()=> requestAnimationFrame(()=>{
+    grid.querySelectorAll('.prob-fill').forEach(el=>{
+      el.style.width = el.dataset.target + '%';
+    });
+  }));
+}
+
+/* ============ ADMIN ============ */
+function goAdmin(){
+  document.getElementById('view-public').classList.add('hidden');
+  document.getElementById('view-admin').classList.remove('hidden');
+  window.scrollTo(0,0);
+}
+function goPublic(){
+  document.getElementById('view-admin').classList.add('hidden');
+  document.getElementById('view-public').classList.remove('hidden');
+  window.scrollTo(0,0);
+}
+function handleAdminLogin(e){
+  e.preventDefault();
+  const val = document.getElementById('admin-pass').value;
+  // Demo-only gate. In production this must be a real authenticated admin role
+  // checked server-side — never a client-side passcode.
+  if(val === '9999'){
+    document.getElementById('admin-gate').classList.add('hidden');
+    document.getElementById('admin-panel').classList.remove('hidden');
+    renderAdminUsers();
+    renderOverrideForm();
+  } else {
+    toast('Wrong passcode');
+  }
+}
+
+function renderAdminUsers(){
+  const users = safeGet(USERS_KEY, []);
+  document.getElementById('user-count').textContent = users.length ? `(${users.length})` : '';
+  const tbody = document.getElementById('users-tbody');
+  document.getElementById('users-empty').classList.toggle('hidden', users.length>0);
+  tbody.innerHTML = users.map((u,i)=>`
+    <tr class="border-b border-[var(--line)]/60">
+      <td class="py-2.5 pr-3">${u.nickname}</td>
+      <td class="py-2.5 pr-3 mono text-[var(--ink-dim)]">${u.id}</td>
+      <td class="py-2.5 pr-3 text-[var(--ink-dim)]">${new Date(u.joinedAt).toLocaleDateString()}</td>
+      <td class="py-2.5 pr-3">
+        <span class="px-2 py-0.5 rounded-full text-[11px] ${u.status==='active' ? 'text-[var(--green)] border border-[var(--green-dim)]' : 'text-[var(--red)] border border-[var(--red)]'}">${u.status}</span>
+      </td>
+      <td class="py-2.5 pr-3 text-right">
+        <button onclick="toggleUser(${i})" class="btn-ghost text-xs px-3 py-1.5 rounded-md">
+          ${u.status==='active' ? 'Suspend' : 'Activate'}
+        </button>
+      </td>
+    </tr>`).join('');
+}
+function toggleUser(i){
+  const users = safeGet(USERS_KEY, []);
+  if(!users[i]) return;
+  users[i].status = users[i].status==='active' ? 'suspended' : 'active';
+  safeSet(USERS_KEY, users);
+  renderAdminUsers();
+  toast(users[i].nickname + ' ' + users[i].status);
+}
+
+function renderOverrideForm(){
+  const list = document.getElementById('override-list');
+  list.innerHTML = SEED_FIXTURES.map(f=>{
+    const fixtures = computeFixtures();
+    const cur = fixtures.find(x=>x.id===f.id);
+    return `
+    <div class="border border-[var(--line)] rounded-lg p-3">
+      <div class="text-sm font-medium mb-2">${f.home} vs ${f.away}</div>
+      <div class="grid grid-cols-3 gap-2 mb-2">
+        <input class="num-in bg-black/30 border border-[var(--line)] rounded-md px-2 py-1.5 text-sm" type="number" step="0.01" min="1.01"
+          id="ov-home-${f.id}" placeholder="Home odds" value="${cur.odds.home.toFixed(2)}">
+        <input class="num-in bg-black/30 border border-[var(--line)] rounded-md px-2 py-1.5 text-sm" type="number" step="0.01" min="1.01"
+          id="ov-draw-${f.id}" placeholder="Draw odds" value="${cur.odds.draw.toFixed(2)}">
+        <input class="num-in bg-black/30 border border-[var(--line)] rounded-md px-2 py-1.5 text-sm" type="number" step="0.01" min="1.01"
+          id="ov-away-${f.id}" placeholder="Away odds" value="${cur.odds.away.toFixed(2)}">
+      </div>
+      <div class="flex gap-2">
+        <button onclick="saveOverride('${f.id}')" class="btn-primary text-xs px-3 py-1.5 rounded-md">Publish override</button>
+        <button onclick="clearOverride('${f.id}')" class="btn-ghost text-xs px-3 py-1.5 rounded-md">Reset to model</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function saveOverride(id){
+  const home = parseFloat(document.getElementById('ov-home-'+id).value);
+  const draw = parseFloat(document.getElementById('ov-draw-'+id).value);
+  const away = parseFloat(document.getElementById('ov-away-'+id).value);
+  if([home,draw,away].some(v=>!v || v<=1)){ toast('Enter valid odds > 1.00'); return; }
+  const overrides = safeGet(MATCH_KEY, {});
+  // Back-derive implied probabilities from the admin's manual odds so the board stays consistent.
+  const implied = { home:1/home, draw:1/draw, away:1/away };
+  const sum = implied.home+implied.draw+implied.away;
+  overrides[id] = { odds:{home,draw,away}, probs:{home:implied.home/sum, draw:implied.draw/sum, away:implied.away/sum} };
+  safeSet(MATCH_KEY, overrides);
+  renderFixtures();
+  toast('Override published');
+}
+function clearOverride(id){
+  const overrides = safeGet(MATCH_KEY, {});
+  delete overrides[id];
+  safeSet(MATCH_KEY, overrides);
+  renderFixtures();
+  renderOverrideForm();
+  toast('Reset to model prediction');
+}
+
+/* ============ INIT ============ */
+renderFixtures();
+if(safeGet(SELF_KEY, null)){
+  renderSelf();
+  enterApp();
+} else {
+  showGate();
+}
+
+// Fallback: if the YouTube background hasn't confirmed loading (e.g. blocked by a
+// sandboxed preview environment), keep the CSS ambient background visible.
+setTimeout(()=>{
+  const f = document.getElementById('bg-iframe');
+  if(f && !f.classList.contains('loaded')){
+    f.style.display = 'none';
+  }
+}, 3500);
+</script>
+</body>
+</html>
